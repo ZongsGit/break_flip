@@ -1,0 +1,32 @@
+﻿# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# IDE
+.idea/
+.vscode/
+.qoder/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs & temp
+*.log
+*.tmp
+.cache/
+
+# Secrets
+.env
+.env.*
+
+# Build artifacts
+dist/
+build/
+
+# 临时上传目录
+tmp_uploads/

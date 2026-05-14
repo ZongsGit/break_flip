@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>惯性突破 信号检测工具</title>
+<script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:"Microsoft YaHei",sans-serif;background:#f0f2f5;color:#333;display:flex;height:100vh}
+/* 左侧面板 */
+.sidebar{width:320px;min-width:320px;background:#fff;border-right:1px solid #e0e0e0;padding:20px;overflow-y:auto;display:flex;flex-direction:column}
+.sidebar h2{font-size:18px;margin-bottom:16px;color:#1a1a2e;border-bottom:2px solid #e74c3c;padding-bottom:8px}
+.form-group{margin-bottom:12px}
+.form-group label{display:block;font-size:13px;color:#555;margin-bottom:4px;font-weight:600}
+.form-group input,.form-group select{width:100%;padding:7px 10px;border:1px solid #d0d0d0;border-radius:4px;font-size:13px;transition:border .2s}
+.form-group input:focus,.form-group select:focus{outline:none;border-color:#3498db}
+.section-title{font-size:14px;font-weight:700;color:#2c3e50;margin:14px 0 8px;padding-left:6px;border-left:3px solid #3498db}
+.data-source-toggle{display:flex;gap:8px;margin-bottom:10px}
+.data-source-toggle button{flex:1;padding:6px;border:1px solid #d0d0d0;border-radius:4px;background:#fff;cursor:pointer;font-size:12px;transition:all .2s}
+.data-source-toggle button.active{background:#3498db;color:#fff;border-color:#3498db}
+#upload-area{display:none;margin-bottom:10px}
+.btn-analyze{width:100%;padding:12px;background:linear-gradient(135deg,#e74c3c,#c0392b);color:#fff;border:none;border-radius:6px;font-size:15px;font-weight:700;cursor:pointer;transition:opacity .2s;margin-top:auto}
+.btn-analyze:hover{opacity:.9}
+.btn-analyze:disabled{background:#aaa;cursor:not-allowed}
+/* 右侧主区域 */
+.main{flex:1;display:flex;flex-direction:column;overflow:hidden}
+.chart-area{flex:1;min-height:400px;position:relative}
+#loading{display:none;position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);font-size:16px;color:#888}
+.result-bar{display:none;padding:8px 20px;background:#2c3e50;color:#fff;font-size:13px;display:flex;align-items:center;gap:16px}
+.result-bar .tag{background:#e74c3c;padding:2px 10px;border-radius:10px;font-weight:700}
+/* 信号表格区 */
+.table-area{height:240px;min-height:200px;background:#fff;border-top:1px solid #e0e0e0;display:flex;flex-direction:column}
+.table-header{display:flex;justify-content:space-between;align-items:center;padding:8px 16px;background:#fafafa;border-bottom:1px solid #eee}
+.table-header h3{font-size:14px;color:#2c3e50}
+.btn-export{padding:6px 16px;background:#27ae60;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:12px;font-weight:600}
+.btn-export:hover{background:#219a52}
+.btn-export:disabled{background:#aaa;cursor:not-allowed}
+.table-scroll{flex:1;overflow-y:auto}
+table{width:100%;border-collapse:collapse;font-size:13px}
+thead{background:#f5f5f5;position:sticky;top:0}
+th,td{padding:8px 16px;text-align:center;border-bottom:1px solid #eee}
+th{font-weight:600;color:#555}
+tr:hover{background:#f9f9f9}
+.empty-hint{text-align:center;padding:40px;color:#aaa;font-size:14px}
+.result-bar{display:none}
+</style>
+</head>
+<body>
+
+<!-- 左侧参数面板 -->
+<div class="sidebar">
+  <h2>惯性突破 信号检测</h2>
+
+  <div class="section-title">数据来源</div>
+  <div class="data-source-toggle">
+    <button id="btn-src-file" class="active" onclick="switchSource('file')">选择已有文件</button>
+    <button id="btn-src-upload" onclick="switchSource('upload')">上传CSV</button>
+  </div>
+  <div class="form-group" id="file-select-area">
+    <select id="selected_file">
+      {% for f in files %}
+      <option value="{{ f }}">{{ f }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="form-group" id="upload-area">
+    <input type="file" id="csv_file" accept=".csv">
+  </div>
+
+  <div class="section-title">数据过滤</div>
+  <div class="form-group">
+    <label>起始日期 (start_date)</label>
+    <input type="date" id="start_date" value="{{ config.start_date }}">
+  </div>
+
+  <div class="section-title">支撑位参数</div>
+  <div class="form-group">
+    <label>回溯天数 (lookback_period)</label>
+    <input type="number" id="lookback_period" value="{{ config.lookback_period }}" min="5" max="120">
+  </div>
+
+  <div class="section-title">跌破参数</div>
+  <div class="form-group">
+    <label>跌破窗口天数 (breakout_window)</label>
+    <input type="number" id="breakout_window" value="{{ config.breakout_window }}" min="1" max="20">
+  </div>
+
+  <div class="section-title">停顿减速参数</div>
+  <div class="form-group">
+    <label>实体比例阈值 (small_body_ratio)</label>
+    <input type="number" id="small_body_ratio" value="{{ config.small_body_ratio }}" step="0.001" min="0">
+  </div>
+  <div class="form-group">
+    <label>下影线比例阈值 (lower_shadow_ratio)</label>
+    <input type="number" id="lower_shadow_ratio" value="{{ config.lower_shadow_ratio }}" step="0.05" min="0" max="1">
+  </div>
+
+  <div class="section-title">成交量参数</div>
+  <div class="form-group">
+    <label>均量周期 (volume_ma_period)</label>
+    <input type="number" id="volume_ma_period" value="{{ config.volume_ma_period }}" min="5" max="120">
+  </div>
+  <div class="form-group">
+    <label>放量倍数 (vol_surge_ratio)</label>
+    <input type="number" id="vol_surge_ratio" value="{{ config.vol_surge_ratio }}" step="0.1" min="0.5">
+  </div>
+
+  <div class="section-title">止损参数</div>
+  <div class="form-group">
+    <label>止损缓冲系数 (stop_loss_buffer)</label>
+    <input type="number" id="stop_loss_buffer" value="{{ config.stop_loss_buffer }}" step="0.005" min="0.9" max="1">
+  </div>
+
+  <button class="btn-analyze" id="btn-run" onclick="runAnalysis()">开始分析</button>
+</div>
+
+<!-- 右侧主区域 -->
+<div class="main">
+  <div class="result-bar" id="result-bar">
+    <span class="tag" id="result-code">--</span>
+    <span id="result-info">--</span>
+  </div>
+  <div class="chart-area" id="chart-area">
+    <div id="loading">正在分析，请稍候...</div>
+    <div id="chart" style="width:100%;height:100%"></div>
+  </div>
+  <div class="table-area">
+    <div class="table-header">
+      <h3>信号列表</h3>
+      <button class="btn-export" id="btn-export" onclick="exportCSV()" disabled>导出 CSV</button>
+    </div>
+    <div class="table-scroll" id="table-scroll">
+      <div class="empty-hint" id="empty-hint">请配置参数后点击「开始分析」</div>
+      <table id="signal-table" style="display:none">
+        <thead><tr><th>#</th><th>日期</th><th>进场价</th><th>支撑位</th><th>止损价</th></tr></thead>
+        <tbody id="signal-body"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script>
+let currentSource = 'file';
+let lastResult = null;
+
+function switchSource(type) {
+  currentSource = type;
+  document.getElementById('btn-src-file').classList.toggle('active', type === 'file');
+  document.getElementById('btn-src-upload').classList.toggle('active', type === 'upload');
+  document.getElementById('file-select-area').style.display = type === 'file' ? 'block' : 'none';
+  document.getElementById('upload-area').style.display = type === 'upload' ? 'block' : 'none';
+}
+
+function buildFormData() {
+  const fd = new FormData();
+  const params = ['start_date','lookback_period','breakout_window','small_body_ratio',
+                  'lower_shadow_ratio','volume_ma_period','vol_surge_ratio','stop_loss_buffer'];
+  params.forEach(p => fd.append(p, document.getElementById(p).value));
+
+  if (currentSource === 'upload') {
+    const fileInput = document.getElementById('csv_file');
+    if (fileInput.files.length > 0) fd.append('csv_file', fileInput.files[0]);
+  } else {
+    fd.append('selected_file', document.getElementById('selected_file').value);
+  }
+  return fd;
+}
+
+async function runAnalysis() {
+  const btn = document.getElementById('btn-run');
+  const loading = document.getElementById('loading');
+  btn.disabled = true;
+  btn.textContent = '分析中...';
+  loading.style.display = 'block';
+
+  try {
+    const resp = await fetch('/api/analyze', { method: 'POST', body: buildFormData() });
+    const data = await resp.json();
+    if (!data.success) { alert('分析失败: ' + data.error); return; }
+
+    lastResult = data;
+    renderChart(data);
+    renderTable(data.signals);
+    renderResultBar(data);
+    document.getElementById('btn-export').disabled = false;
+  } catch (e) {
+    alert('请求失败: ' + e.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '开始分析';
+    loading.style.display = 'none';
+  }
+}
+
+function renderResultBar(data) {
+  const bar = document.getElementById('result-bar');
+  bar.style.display = 'flex';
+  document.getElementById('result-code').textContent = data.stock_code;
+  document.getElementById('result-info').textContent =
+    `共 ${data.total_bars} 根K线  |  检测到 ${data.signal_count} 个惯性突破信号  |  ` +
+    `回溯=${data.config.lookback_period}  窗口=${data.config.breakout_window}  放量=${data.config.vol_surge_ratio}`;
+}
+
+function renderChart(data) {
+  const chartDom = document.getElementById('chart');
+  const chart = echarts.init(chartDom);
+
+  const pd = data.price_data;
+  const dates = pd.dates;
+
+  // 信号标注点
+  const entryPoints = data.signals.map(s => ({
+    coord: [s.date, s.entry_price],
+    value: s.entry_price,
+    itemStyle: { color: '#e74c3c' }
+  }));
+  const supportPoints = data.signals.map(s => ({
+    coord: [s.date, s.support_level],
+    value: s.support_level,
+    itemStyle: { color: '#2ecc71' }
+  }));
+
+  // 成交量颜色
+  const volColors = dates.map((_, i) => pd.close[i] >= pd.open[i] ? '#2ecc71' : '#e74c3c');
+  const volData = pd.volume.map((v, i) => ({ value: v, itemStyle: { color: volColors[i], opacity: 0.5 } }));
+
+  const option = {
+    animation: false,
+    tooltip: { trigger: 'axis', axisPointer: { type: 'cross' } },
+    axisPointer: { link: [{ xAxisIndex: 'all' }] },
+    grid: [
+      { left: 70, right: 40, top: 50, height: '55%' },
+      { left: 70, right: 40, top: '72%', height: '20%' }
+    ],
+    xAxis: [
+      { type: 'category', data: dates, gridIndex: 0, boundaryGap: true,
+        axisLine: { lineStyle: { color: '#ccc' } }, axisLabel: { show: false } },
+      { type: 'category', data: dates, gridIndex: 1, boundaryGap: true,
+        axisLine: { lineStyle: { color: '#ccc' } } }
+    ],
+    yAxis: [
+      { scale: true, gridIndex: 0, splitLine: { lineStyle: { color: '#f0f0f0' } } },
+      { scale: true, gridIndex: 1, splitLine: { lineStyle: { color: '#f0f0f0' } } }
+    ],
+    dataZoom: [
+      { type: 'inside', xAxisIndex: [0, 1], start: 70, end: 100 },
+      { type: 'slider', xAxisIndex: [0, 1], bottom: 10, height: 20, start: 70, end: 100 }
+    ],
+    series: [
+      {
+        name: 'K线', type: 'candlestick', xAxisIndex: 0, yAxisIndex: 0,
+        data: dates.map((_, i) => [pd.open[i], pd.close[i], pd.low[i], pd.high[i]]),
+        itemStyle: { color: '#e74c3c', color0: '#2ecc71', borderColor: '#e74c3c', borderColor0: '#2ecc71' },
+        markPoint: {
+          symbol: 'triangle', symbolSize: 14, symbolRotate: 0,
+          data: entryPoints,
+          label: { show: false }
+        }
+      },
+      {
+        name: '支撑位', type: 'scatter', xAxisIndex: 0, yAxisIndex: 0,
+        data: supportPoints.map(s => s.coord),
+        symbol: 'rect', symbolSize: [16, 3],
+        itemStyle: { color: '#2ecc71' },
+        z: 10
+      },
+      {
+        name: '成交量', type: 'bar', xAxisIndex: 1, yAxisIndex: 1,
+        data: volData, barMaxWidth: 6
+      },
+      {
+        name: '均量线', type: 'line', xAxisIndex: 1, yAxisIndex: 1,
+        data: pd.vol_ma, smooth: true, symbol: 'none',
+        lineStyle: { color: '#e67e22', width: 1 }
+      }
+    ]
+  };
+
+  chart.setOption(option);
+  window.addEventListener('resize', () => chart.resize());
+}
+
+function renderTable(signals) {
+  const tbody = document.getElementById('signal-body');
+  const table = document.getElementById('signal-table');
+  const hint = document.getElementById('empty-hint');
+
+  if (!signals || signals.length === 0) {
+    table.style.display = 'none';
+    hint.style.display = 'block';
+    hint.textContent = '未检测到信号，请尝试调整参数';
+    return;
+  }
+
+  hint.style.display = 'none';
+  table.style.display = 'table';
+  tbody.innerHTML = signals.map((s, i) =>
+    `<tr><td>${i + 1}</td><td>${s.date}</td><td>${s.entry_price}</td><td>${s.support_level}</td><td>${s.stop_loss}</td></tr>`
+  ).join('');
+}
+
+async function exportCSV() {
+  const btn = document.getElementById('btn-export');
+  btn.disabled = true;
+  btn.textContent = '导出中...';
+  try {
+    const resp = await fetch('/api/export', { method: 'POST', body: buildFormData() });
+    if (!resp.ok) { const e = await resp.json(); alert('导出失败: ' + e.error); return; }
+    const blob = await resp.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = (lastResult ? lastResult.stock_code : 'signals') + '_signals.csv';
+    a.click();
+    URL.revokeObjectURL(url);
+  } catch (e) {
+    alert('导出失败: ' + e.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '导出 CSV';
+  }
+}
+</script>
+</body>
+</html>
